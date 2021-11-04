@@ -42,7 +42,7 @@ inode_type root;
 int fd;
 int icount = 1;
 int no_of_blocks;
-// int 
+int no_of_inodes;
 
 int open_fs(char *file_name){
     int fd = open(file_name, O_RDWR, 0600);
@@ -81,6 +81,22 @@ void inode_writer(int iNumber, inode_type inode){
     blockWriter_withOffset(blocknumber, offset, &inode, sizeof(inode));
 }
 
+inode_type inode_reader(int iNumber, inode_type inode){
+    int blocknumber = 2 + (INODE_SIZE*iNumber/BLOCK_SIZE);
+    int offset = ((INODE_SIZE*iNumber)%BLOCK_SIZE) - 64;
+
+    lseek(fd, blocknumber*BLOCK_SIZE + offset, SEEK_SET);
+    read(fd, &inode, sizeof(inode));
+
+    return inode;
+}
+
+void initialize_inodes(int iNumber){
+    inode_type inode;
+    inode.flags = 0;
+    inode_writer(iNumber, inode);
+}
+
 void allocate_blocks(int blocknumber){
     if(superblock.nfree == FREE_ARRAY_SIZE){
         // write to block
@@ -109,11 +125,24 @@ int getFreeDataBlock(){
 }
 
 int getInode(){
-    icount++;
-    if(icount > no_of_blocks - 1){
-        return -1;
+
+    unsigned short int compare_flag = 1 << 15;
+    inode_type inode;
+
+    for(int i = 2; i <= no_of_inodes; i++){
+
+        inode = inode_reader(i, inode);
+
+        if(!(inode.flags & compare_flag)){
+
+            inode.flags |= 1 << 15;
+            inode_writer(i, inode);
+            return i;
+        
+        }
     }
-    return icount;
+    return -1;
+        
 }
 
 void create_root(){
@@ -133,9 +162,11 @@ void create_root(){
     blockWriter(block_number, d, sizeof(d));
     // blockWriter(block_number, d[0].filename, sizeof(d[0].filename));
 
-    printf("The root directory is at block number %d \n", block_number);
+    // printf("The root directory is at block number %d \n", block_number);
 
     root.addr[0] = block_number;
+
+    root.flags |= 1 << 15;
 
     inode_writer(1, root);
 
@@ -144,6 +175,7 @@ void create_root(){
 }
 
 void initfs(int n1, int n2){
+    // n1 is the file system size in number of blocks and n2 is the number of blocks devoted to the i-nodes.
 
     char fillerBlock[BLOCK_SIZE] = {0};
     fd = open("foo.txt", O_RDWR | O_CREAT, 0600);
@@ -154,6 +186,13 @@ void initfs(int n1, int n2){
     blockWriter(1, &superblock, sizeof(superblock));
 
     superblock.isize = n2;
+
+    no_of_inodes = BLOCK_SIZE*n2/INODE_SIZE;
+
+    for(int i = 2; i <= no_of_inodes; i++){
+        // Initialize the inodes and write to file system
+        initialize_inodes(i);
+    }
 
     superblock.nfree = 0;
     for(int blocknumber = 2 + superblock.isize; blocknumber < n1; blocknumber++){
@@ -174,7 +213,7 @@ void initfs(int n1, int n2){
 
 int main(){
     int n1 = 10;
-    int n2 = 3;
+    int n2 = 2;
     inode_type temp_root;
 
     initfs(n1, n2);
@@ -182,14 +221,40 @@ int main(){
     lseek(fd, 2 * BLOCK_SIZE, SEEK_SET);
     read(fd, &temp_root, sizeof(temp_root));
 
-    printf("The root's addr[0] is %d \n", temp_root.addr[0]);
+    int a = 1 << 15;
 
-    dir_type temp_dir[32];
+    if(temp_root.flags & a){
+    printf("The inode is allocated! \n");
+    }
 
-    lseek(fd, temp_root.addr[0]*BLOCK_SIZE, SEEK_SET);
-    read(fd, temp_dir, sizeof(temp_dir));
+    else{
+        printf("The inode is unallocated! \n");
+    }
 
-    printf("%s \n", temp_dir[0].filename);
+    printf("The number of inodes is: %d \n", no_of_inodes);
+
+    for(int i = 1; i <= 31; i++){
+        printf("Inode %d is allocated \n", getInode());
+    }
+
+    printf("Inode %d is allocated \n", getInode());
+
+    // inode_type test;
+    // test = inode_reader(1, test);
+    // printf("Test flag: %d", test.flags);
+    // getInode();
+    // getInode();
+
+    // printf("The root's addr[0] is %d \n", temp_root.addr[0]);
+
+
+
+    // dir_type temp_dir[32];
+
+    // lseek(fd, temp_root.addr[0]*BLOCK_SIZE, SEEK_SET);
+    // read(fd, temp_dir, sizeof(temp_dir));
+
+    // printf("%s \n", temp_dir[0].filename);
     
 
 
