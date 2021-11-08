@@ -3,6 +3,7 @@
 #include<fcntl.h>
 #include<errno.h>
 #include<unistd.h>
+#include<stdlib.h>
 
 #define BLOCK_SIZE 1024
 #define INODE_SIZE 64
@@ -112,6 +113,12 @@ void allocate_blocks(int blocknumber){
 int getFreeDataBlock(){
 
     superblock.nfree--;
+    if(superblock.free[superblock.nfree] == 0){
+        printf("No Free Data blocks left to allocate! \n");
+        superblock.nfree++;
+        return -1;
+    }
+
     if(superblock.nfree == 0){
         int blocknumber = superblock.free[0];
         lseek(fd, blocknumber*BLOCK_SIZE, SEEK_SET);
@@ -147,6 +154,7 @@ int getInode(){
 
 void create_root(){
     int block_number = getFreeDataBlock();
+    printf("Block Number %d is allocated \n", block_number);
     dir_type d[32];
 
     strcpy(d[0].filename, ".");
@@ -166,7 +174,10 @@ void create_root(){
 
     root.addr[0] = block_number;
 
-    root.flags |= 1 << 15;
+    root.flags |= 1 << 15; //Root is allocated
+    root.flags |= 1 <<14; //It is a directory
+    root.actime = 0;
+    root.modtime = 0;
 
     inode_writer(1, root);
 
@@ -181,9 +192,10 @@ void initfs(int n1, int n2){
     fd = open("foo.txt", O_RDWR | O_CREAT, 0600);
     // printf("%d \n", fd);
 
-    blockWriter(n1 - 1, fillerBlock, BLOCK_SIZE);
-    superblock.nfree = 5;
-    blockWriter(1, &superblock, sizeof(superblock));
+    blockWriter(n1 - 1, fillerBlock, BLOCK_SIZE); //Writing to last block.
+
+    // superblock.nfree = 5;
+    // blockWriter(1, &superblock, sizeof(superblock));
 
     superblock.isize = n2;
 
@@ -195,20 +207,30 @@ void initfs(int n1, int n2){
     }
 
     superblock.nfree = 0;
+    superblock.free[superblock.nfree] = 0;
+    superblock.nfree++;
     for(int blocknumber = 2 + superblock.isize; blocknumber < n1; blocknumber++){
         allocate_blocks(blocknumber);
     }
 
     create_root();
+    
+    superblock.flock = 'f';
+    superblock.ilock = 'i';
+    superblock.fmod = 'm';
 
-
-
+    blockWriter(1, &superblock, sizeof(superblock));
 
     // if((INODE_SIZE*n2)%BLOCK_SIZE)
     //     superblock.isize = (INODE_SIZE*n2)/BLOCK_SIZE;
     // else   
     //     superblock.isize = (INODE_SIZE*n2)/BLOCK_SIZE + 1;
 
+}
+
+void quit(){
+    close(fd);
+    exit(0);
 }
 
 int main(){
@@ -239,6 +261,13 @@ int main(){
 
     printf("Inode %d is allocated \n", getInode());
 
+    // printf("Block Number %d is allocated \n", getFreeDataBlock());
+
+    for(int i = 1; i <= n1 - n2 - 1; i++){
+        printf("Block Number %d is allocated \n", getFreeDataBlock());
+        // printf("Hello \n");
+    }
+
     // inode_type test;
     // test = inode_reader(1, test);
     // printf("Test flag: %d", test.flags);
@@ -256,14 +285,6 @@ int main(){
 
     // printf("%s \n", temp_dir[0].filename);
     
-
-
-
-
-
-
-
-
 
 
     // superblock_type temp;
