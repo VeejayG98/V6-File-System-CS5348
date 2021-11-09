@@ -4,6 +4,7 @@
 #include<errno.h>
 #include<unistd.h>
 #include<stdlib.h>
+#include<time.h>
 
 #define BLOCK_SIZE 1024
 #define INODE_SIZE 64
@@ -131,7 +132,7 @@ int getFreeDataBlock(){
     return superblock.free[superblock.nfree];
 }
 
-int getInode(){
+int getFreeInode(){
 
     unsigned short int compare_flag = 1 << 15;
     inode_type inode;
@@ -176,9 +177,12 @@ void create_root(){
 
     root.flags |= 1 << 15; //Root is allocated
     root.flags |= 1 <<14; //It is a directory
-    root.actime = 0;
-    root.modtime = 0;
+    root.actime = time(NULL);
+    root.modtime = time(NULL);
 
+    root.size0 = 0;
+    root.size1 = 2 * sizeof(dir_type);
+    
     inode_writer(1, root);
 
     // root.flags;
@@ -218,6 +222,7 @@ void initfs(int n1, int n2){
     superblock.flock = 'f';
     superblock.ilock = 'i';
     superblock.fmod = 'm';
+    superblock.time = time(NULL);
 
     blockWriter(1, &superblock, sizeof(superblock));
 
@@ -256,14 +261,14 @@ int main(){
     printf("The number of inodes is: %d \n", no_of_inodes);
 
     for(int i = 1; i <= 31; i++){
-        printf("Inode %d is allocated \n", getInode());
+        printf("Inode %d is allocated \n", getFreeInode());
     }
 
-    printf("Inode %d is allocated \n", getInode());
+    printf("Inode %d is allocated \n", getFreeInode());
 
     // printf("Block Number %d is allocated \n", getFreeDataBlock());
 
-    for(int i = 1; i <= n1 - n2 - 1; i++){
+    for(int i = 1; i <= n1 - n2 - 2; i++){
         printf("Block Number %d is allocated \n", getFreeDataBlock());
         // printf("Hello \n");
     }
@@ -271,8 +276,8 @@ int main(){
     // inode_type test;
     // test = inode_reader(1, test);
     // printf("Test flag: %d", test.flags);
-    // getInode();
-    // getInode();
+    // getFreeInode();
+    // getFreeInode();
 
     // printf("The root's addr[0] is %d \n", temp_root.addr[0]);
 
