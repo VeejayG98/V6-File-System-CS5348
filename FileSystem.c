@@ -47,23 +47,27 @@ int no_of_blocks;
 int no_of_inodes;
 
 int open_fs(char *file_name){
-    int fd = open(file_name, O_RDWR, 0600);
+    fd = open(file_name, O_RDWR | O_CREAT, 0600);
 
     if(fd == -1){
         //call initfs
-        return 1;
+        return -1;
     }
-    else{
+
+    // This part of code is commented out for Part 2
+
+    // else{
         
-        lseek(fd, BLOCK_SIZE, SEEK_SET);
-        read(fd, &superblock, sizeof(superblock));
+    //     lseek(fd, BLOCK_SIZE, SEEK_SET);
+    //     read(fd, &superblock, sizeof(superblock));
 
-        //Indicate success in opening/creating the filesystem
-        return 1;
+    //     //Indicate success in opening/creating the filesystem
+    //     return 1;
 
-    }
+    // }
 }
 
+// Function to write to a block
 void blockWriter(int blockNumber, void * buffer, int size){
 
     lseek(fd, blockNumber*BLOCK_SIZE, SEEK_SET);
@@ -71,11 +75,13 @@ void blockWriter(int blockNumber, void * buffer, int size){
     
 }
 
+// Function to write to a block provided offset
 void blockWriter_withOffset(int blockNumber, int offset, void * buffer, int size){
     lseek(fd, blockNumber*BLOCK_SIZE + offset, SEEK_SET);
     write(fd, buffer, size);
 }
 
+// Function to write inode
 void inode_writer(int iNumber, inode_type inode){
     int blocknumber = 2 + (INODE_SIZE*iNumber/BLOCK_SIZE);
     int offset = ((INODE_SIZE*iNumber)%BLOCK_SIZE) - 64;
@@ -83,6 +89,7 @@ void inode_writer(int iNumber, inode_type inode){
     blockWriter_withOffset(blocknumber, offset, &inode, sizeof(inode));
 }
 
+// Function to read inodes
 inode_type inode_reader(int iNumber, inode_type inode){
     int blocknumber = 2 + (INODE_SIZE*iNumber/BLOCK_SIZE);
     int offset = ((INODE_SIZE*iNumber)%BLOCK_SIZE) - 64;
@@ -93,17 +100,19 @@ inode_type inode_reader(int iNumber, inode_type inode){
     return inode;
 }
 
+// Function to initialize inodes
 void initialize_inodes(int iNumber){
     inode_type inode;
     inode.flags = 0;
     inode_writer(iNumber, inode);
 }
 
+// Function to chain the data blocks
 void allocate_blocks(int blocknumber){
     if(superblock.nfree == FREE_ARRAY_SIZE){
         // write to block
         blockWriter(blocknumber, &superblock.nfree, sizeof(superblock.nfree));
-        blockWriter_withOffset(blocknumber, 2, &superblock.free, sizeof(superblock.free));
+        blockWriter_withOffset(blocknumber, sizeof(superblock.nfree), &superblock.free, sizeof(superblock.free));
         superblock.nfree = 0;
     }
 
@@ -111,6 +120,7 @@ void allocate_blocks(int blocknumber){
     superblock.nfree++;
 }
 
+// Function to grab a free data block
 int getFreeDataBlock(){
 
     superblock.nfree--;
@@ -132,6 +142,7 @@ int getFreeDataBlock(){
     return superblock.free[superblock.nfree];
 }
 
+// Function to grab a free inode
 int getFreeInode(){
 
     unsigned short int compare_flag = 1 << 15;
@@ -153,6 +164,7 @@ int getFreeInode(){
         
 }
 
+// Function to create the root of the file system
 void create_root(){
     int block_number = getFreeDataBlock();
     printf("Block Number %d is allocated \n", block_number);
@@ -189,11 +201,13 @@ void create_root(){
 
 }
 
+// Function to initialize the file system
 void initfs(int n1, int n2){
     // n1 is the file system size in number of blocks and n2 is the number of blocks devoted to the i-nodes.
 
     char fillerBlock[BLOCK_SIZE] = {0};
-    fd = open("foo.txt", O_RDWR | O_CREAT, 0600);
+
+    // fd = open("foo.txt", O_RDWR | O_CREAT, 0600);
     // printf("%d \n", fd);
 
     blockWriter(n1 - 1, fillerBlock, BLOCK_SIZE); //Writing to last block.
@@ -233,17 +247,23 @@ void initfs(int n1, int n2){
 
 }
 
+// Function to quit the program
 void quit(){
     close(fd);
     exit(0);
 }
 
+// The main function
 int main(){
     int n1 = 10;
     int n2 = 2;
     inode_type temp_root;
 
+    open_fs("foo.txt");
+
     initfs(n1, n2);
+
+    quit();
 
     lseek(fd, 2 * BLOCK_SIZE, SEEK_SET);
     read(fd, &temp_root, sizeof(temp_root));
