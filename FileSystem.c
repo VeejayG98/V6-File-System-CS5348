@@ -68,15 +68,25 @@ int open_fs(char *file_name){
 }
 
 // Function to write to a block
-void blockWriter(int blockNumber, void * buffer, int size){
+void blockWriter(int blockNumber, void *buffer, int size){
 
     lseek(fd, blockNumber*BLOCK_SIZE, SEEK_SET);
     write(fd, buffer, size);
     
 }
 
+void blockReader(int blockNumber, void *buffer, int size){
+    lseek(fd, blockNumber*BLOCK_SIZE, SEEK_SET);
+    read(fd, buffer, size);
+}
+
+void blockReader_withOffset(int blockNumber, int offset, void *buffer, int size){
+    lseek(fd, blockNumber*BLOCK_SIZE + offset, SEEK_SET);
+    read(fd, buffer, size);
+}
+
 // Function to write to a block provided offset
-void blockWriter_withOffset(int blockNumber, int offset, void * buffer, int size){
+void blockWriter_withOffset(int blockNumber, int offset, void *buffer, int size){
     lseek(fd, blockNumber*BLOCK_SIZE + offset, SEEK_SET);
     write(fd, buffer, size);
 }
@@ -196,6 +206,9 @@ void create_root(){
     root.flags |= 1 <<14; //It is a directory
     root.actime = time(NULL);
     root.modtime = time(NULL);
+    
+    root.gid = 0;
+    root.uid = 0;
 
     root.size0 = 0;
     root.size1 = 2 * sizeof(dir_type);
@@ -274,14 +287,25 @@ void mkdir(char *name){
         }
 
         if(strlen(currDir[i].filename) == 0){
-            strcpy(currDir[i].filename, name);
             iNumber = getFreeInode();
+
+            if(iNumber == -1){
+                printf("Storage space full! No free inodes are available!");
+                return;
+            }
+
+            strcpy(currDir[i].filename, name);
             currDir[i].inode = iNumber;
             break;
         }
     }
 
     int blockNumber = getFreeDataBlock();
+
+    if(blockNumber == -1){
+        printf("Storage space full! No free Data blocks are available!");
+        return;
+    }
     
     dir_type d[32];
 
@@ -303,6 +327,12 @@ void mkdir(char *name){
     // printf("Before setting flag: %d \n", inode.flags);
     inode.flags |= 1 <<14; //It is a directory
     // printf("After setting flag: %d \n", inode.flags);
+
+    inode.actime = time(NULL);
+    inode.modtime = time(NULL);
+
+    inode.gid = 0;
+    inode.uid = 0;
 
     inode.size0 = 0;
     inode.size1 = 2 * sizeof(dir_type);
@@ -372,6 +402,115 @@ void cd(char *name){
     currDir_iNumber = new_iNumber;
     // printf("The new dir inode number is %d \n", currDir_iNumber);
 
+}
+
+void cpin(char *source_path, char *filename){
+    int source, blockNumber, iNumber, bytesRead;
+
+    if((source = open(source_path, O_RDWR)) == -1){
+        printf("File does not exist! \n");
+        return;
+    }
+
+    if((iNumber = getFreeInode()) == -1){
+        printf("Storage space full! No free inodes are available!");
+        return;
+    }
+
+    
+
+    inode_type new_file = inode_reader(iNumber, new_file);
+
+    new_file.nlinks = 1;
+    new_file.uid = 0;
+    new_file.gid = 0;
+
+    new_file.actime = time(NULL);
+    new_file.modtime = time(NULL);
+    new_file.size1 = 0;
+    
+    char tempBuffer[BLOCK_SIZE];
+    int i = 0;
+    // unsigned int size = 0;
+
+    do
+    {
+        bytesRead = read(source, tempBuffer, BLOCK_SIZE);
+        printf("%s \n", tempBuffer);
+        new_file.size1 += bytesRead;
+        
+        if((blockNumber = getFreeDataBlock()) == -1){
+            printf("Storage space full! No free Data blocks are available!");
+            return;
+        }
+
+        new_file.addr[i] = blockNumber;
+        blockWriter(blockNumber, tempBuffer, bytesRead);
+
+    } while (bytesRead == BLOCK_SIZE);
+
+    inode_writer(iNumber, new_file);
+
+    inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
+    dir_type currDir[32];
+    int currDirBlockNumber = currDir_inode.addr[0];
+
+    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &currDir, sizeof(currDir));
+
+    for(i = 0; i < 32; i++){
+        if(strlen(currDir[i].filename) == 0){
+            strcpy(currDir[i].filename, filename);
+            currDir[i].inode = iNumber;
+        }
+    }
+    currDir_inode.size1 += sizeof(dir_type);
+    inode_writer(currDir_iNumber, currDir_inode);
+    blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
+
+}
+
+void cpout(char *dest_path, char *filename){
+
+    int dest, currDirBlockNumber, j;
+    inode_type file;
+    dest = open(dest_path, O_RDWR|O_CREAT, 0600);
+
+    inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
+    currDirBlockNumber = currDir_inode.addr[0];
+
+    dir_type currDir[32];
+    unsigned short int compare_flag = 1 << 14;
+
+    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &currDir, sizeof(currDir));
+
+    char temp_buffer[BLOCK_SIZE];
+
+    for(int i = 0; i < 32; i++){
+
+        if(strcmp(currDir[i].filename, filename) == 0){
+            printf("The inode of the file is %d \n", currDir[i].inode);
+            file = inode_reader(currDir[i].inode, file);
+
+            if(file.flags & compare_flag){
+                printf("It is not a file!");
+                return;
+            }
+
+            for(j = 0; j < file.size1/BLOCK_SIZE; j++){
+                
+                blockReader(file.addr[i], temp_buffer, BLOCK_SIZE);
+                printf("%s \n", temp_buffer);
+                write(dest, temp_buffer, BLOCK_SIZE);
+            }
+            blockReader(file.addr[i], temp_buffer, file.size1 % BLOCK_SIZE);
+            write(dest, temp_buffer, file.size1 % BLOCK_SIZE);
+            
+            break;
+
+        }
+    }
 }
 
 // Function to quit the program
@@ -451,7 +590,26 @@ int main(){
     read(fd, &temp_dir, sizeof(temp_dir));
 
     printf("%s \n", temp_dir[2].filename);
+    printf("%d \n", temp_dir[2].inode);
     printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    cpin("transfer.txt", "transfer.txt");
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[3].filename);
+    printf("%d \n", temp_dir[3].inode);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    // cpout("transfer1.txt", "transfer.txt");
+
+    inode_type file = inode_reader(temp_dir[3].inode, file);
+    printf("The size of the file is %d \n", file.size1);
+    char temp[BLOCK_SIZE];
+    blockReader(file.addr[0], temp, file.size1);
+
+    printf("%s \n", temp);
 
 
 
