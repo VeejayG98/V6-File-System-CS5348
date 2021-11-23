@@ -40,11 +40,11 @@ typedef struct {
 
 superblock_type superblock;
 inode_type root;
-
 int fd;
 int icount = 1;
 int no_of_blocks;
 int no_of_inodes;
+int currDir_iNumber;
 
 int open_fs(char *file_name){
     fd = open(file_name, O_RDWR | O_CREAT, 0600);
@@ -170,6 +170,10 @@ void create_root(){
     printf("Block Number %d is allocated \n", block_number);
     dir_type d[32];
 
+    for(int i = 0; i < 32; i++){
+        strcpy(d[i].filename, "");
+    }
+
     strcpy(d[0].filename, ".");
     d[0].inode = 1;
 
@@ -186,7 +190,8 @@ void create_root(){
     // printf("The root directory is at block number %d \n", block_number);
 
     root.addr[0] = block_number;
-
+    root.nlinks = 1;
+    
     root.flags |= 1 << 15; //Root is allocated
     root.flags |= 1 <<14; //It is a directory
     root.actime = time(NULL);
@@ -232,6 +237,8 @@ void initfs(int n1, int n2){
     }
 
     create_root();
+
+    currDir_iNumber = 1;
     
     superblock.flock = 'f';
     superblock.ilock = 'i';
@@ -247,6 +254,124 @@ void initfs(int n1, int n2){
 
 }
 
+void mkdir(char *name){
+
+    int iNumber;
+    // printf("The current directory is %d \n", currDir_iNumber);
+    inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
+    int currDirBlockNumber = currDir_inode.addr[0];
+
+    dir_type currDir[32];
+
+    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &currDir, sizeof(currDir));
+
+    for(int i = 0; i < 32; i++){
+
+        if(strcmp(currDir[i].filename, name) == 0){
+            printf("Folder already exists! \n");
+            return;
+        }
+
+        if(strlen(currDir[i].filename) == 0){
+            strcpy(currDir[i].filename, name);
+            iNumber = getFreeInode();
+            currDir[i].inode = iNumber;
+            break;
+        }
+    }
+
+    int blockNumber = getFreeDataBlock();
+    
+    dir_type d[32];
+
+    for(int i = 0; i < 32; i++){
+        strcpy(d[i].filename, "");
+    }
+
+    d[0].inode = iNumber;
+    strcpy(d[0].filename, ".");
+    
+    d[1].inode = currDir_iNumber;
+    strcpy(d[1].filename, "..");
+
+    blockWriter(blockNumber, d, sizeof(d));
+
+    // printf("The inode allocated is %d \n", iNumber);
+    inode_type inode = inode_reader(iNumber, inode);
+    inode.nlinks = 1;
+    // printf("Before setting flag: %d \n", inode.flags);
+    inode.flags |= 1 <<14; //It is a directory
+    // printf("After setting flag: %d \n", inode.flags);
+
+    inode.size0 = 0;
+    inode.size1 = 2 * sizeof(dir_type);
+    inode.addr[0] = blockNumber;
+
+    inode_writer(iNumber, inode);
+
+    blockWriter(currDirBlockNumber, currDir, sizeof(currDir));    
+
+    // inode_type new_inode = inode_reader(iNumber, new_inode);
+    // printf("After writing, flags: %d \n", new_inode.flags);
+
+    // printf("The inode allocated is %d \n", iNumber);
+    // inode_type inode = inode_reader(iNumber, inode);
+    // inode.nlinks = 1;
+    // printf("Before setting flag: %d \n", inode.flags);
+    // inode.flags |= 1 <<14; //It is a directory
+    // printf("After setting flag: %d \n", inode.flags);
+
+
+    // inode_writer(iNumber, inode);
+
+    
+
+}
+
+void cd(char *name){
+
+    // printf("The folder to find is %s \n", name);
+    unsigned short int compare_flag = 1 << 14; //To check if the file is a directory or not
+    inode_type inode;
+
+    inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
+    int currDirBlockNumber = currDir_inode.addr[0];
+
+    dir_type currDir[32];
+
+    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &currDir, sizeof(currDir));
+
+    int new_iNumber = 0;
+    for(int i = 0; i < 32; i++){
+        // printf("%s \n", currDir[i].filename);
+        // printf("The iNumber of the file is %d \n", currDir[i].inode);
+        if(strcmp(currDir[i].filename, name) == 0){
+            // printf("Yes! \n");
+
+            inode = inode_reader(currDir[i].inode, inode);
+
+            if(inode.flags & compare_flag){
+                // printf("Another yes! \n");
+                new_iNumber = currDir[i].inode;
+                break;
+            }
+        }
+    }
+
+    if(new_iNumber == 0){
+        printf("Folder not found! \n");
+        return;
+    }
+    
+    inode.actime = time(NULL);
+    inode_writer(new_iNumber, inode);
+    currDir_iNumber = new_iNumber;
+    // printf("The new dir inode number is %d \n", currDir_iNumber);
+
+}
+
 // Function to quit the program
 void quit(){
     close(fd);
@@ -255,6 +380,8 @@ void quit(){
 
 // The main function
 int main(){
+    printf("Root flag is %d \n", root.flags);
+
     int n1 = 10;
     int n2 = 2;
     inode_type temp_root;
@@ -263,7 +390,7 @@ int main(){
 
     initfs(n1, n2);
 
-    quit();
+    // quit();
 
     lseek(fd, 2 * BLOCK_SIZE, SEEK_SET);
     read(fd, &temp_root, sizeof(temp_root));
@@ -280,18 +407,121 @@ int main(){
 
     printf("The number of inodes is: %d \n", no_of_inodes);
 
-    for(int i = 1; i <= 31; i++){
-        printf("Inode %d is allocated \n", getFreeInode());
-    }
+    // int iNumber = getFreeInode();
 
-    printf("Inode %d is allocated \n", getFreeInode());
+    // printf("The inode allocated is %d \n", iNumber);
+    // inode_type inode = inode_reader(iNumber, inode);
+    // inode.nlinks = 1;
+    // printf("Before setting flag: %d \n", inode.flags);
+    // inode.flags |= 1 <<14; //It is a directory
+    // printf("After setting flag: %d \n", inode.flags);
+
+    // inode_writer(iNumber, inode);
+
+    // inode_type new_inode = inode_reader(iNumber, new_inode);
+    // printf("After writing, flags: %d \n", new_inode.flags);
+
+    // int b = 1 << 14;
+
+    // if(new_inode.flags & b){
+    //     printf("Success!! \n");
+    // }
+
+    mkdir("Testing");
+
+    inode_type new_inode = inode_reader(2, new_inode);
+    printf("After writing, flags: %d \n", new_inode.flags);
+
+    dir_type temp_dir[32];
+    
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[2].filename);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    cd("Testing");
+
+    mkdir("Batman");
+    temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[2].filename);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+
+
+
+
+
+
+    // for(int i = 1; i <= 31; i++){
+    //     printf("Inode %d is allocated \n", getFreeInode());
+    // }
+
+    // printf("Inode %d is allocated \n", getFreeInode());
 
     // printf("Block Number %d is allocated \n", getFreeDataBlock());
 
-    for(int i = 1; i <= n1 - n2 - 2; i++){
-        printf("Block Number %d is allocated \n", getFreeDataBlock());
-        // printf("Hello \n");
-    }
+    // for(int i = 1; i <= n1 - n2 - 2; i++){
+    //     printf("Block Number %d is allocated \n", getFreeDataBlock());
+    //     // printf("Hello \n");
+    // }
+
+    // int itest = getFreeInode();
+    // inode_type test = inode_reader(itest, test);
+
+    // printf("test %d flag %d and a %d\n", itest, test.flags, a);
+
+    // mkdir("Testing");
+    // mkdir("Testing");
+    // printf("%d \n", temp_root.addr[0]);
+
+
+    // lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    // read(fd, &temp_dir, sizeof(temp_dir));
+
+    // if(temp_dir[4].filename[0]){
+    //     printf("Yes! \n");
+    // }
+    // else{
+    //     printf("No! \n");
+    // // }
+    // printf("%s \n", temp_dir[2].filename);
+
+    // int b = 1 << 14;
+
+    // inode_type new_inode = inode_reader(temp_dir[2].inode, new_inode);
+
+    // // printf("%d \n", root.flags);
+    // printf("%d \n", new_inode.flags);
+
+    // if(new_inode.flags & b){
+    // printf("It is a directory! \n");
+    // }
+
+    // else{
+    //     printf("It is not! \n");
+    // }
+
+    // cd("Testing");
+    
+    // temp_root = inode_reader(currDir_iNumber, temp_root);
+
+    // temp_dir[32];
+
+    // lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    // read(fd, &temp_dir, sizeof(temp_dir));
+
+    // printf("%s \n", temp_dir[0].filename);
+
+    // printf("%d \n", strlen(temp_dir[1].filename));
+
+
+
+
 
     // inode_type test;
     // test = inode_reader(1, test);
