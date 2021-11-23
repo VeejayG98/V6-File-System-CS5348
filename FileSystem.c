@@ -310,6 +310,8 @@ void mkdir(char *name){
 
     inode_writer(iNumber, inode);
 
+    currDir_inode.size1 += sizeof(dir_type);
+    inode_writer(currDir_iNumber, currDir_inode);
     blockWriter(currDirBlockNumber, currDir, sizeof(currDir));    
 
     // inode_type new_inode = inode_reader(iNumber, new_inode);
