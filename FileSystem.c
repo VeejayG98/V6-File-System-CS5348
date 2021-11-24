@@ -45,6 +45,7 @@ int icount = 1;
 int no_of_blocks;
 int no_of_inodes;
 int currDir_iNumber;
+int actualDir_iNumber;
 
 int open_fs(char *file_name){
     fd = open(file_name, O_RDWR | O_CREAT, 0600);
@@ -362,7 +363,7 @@ void mkdir(char *name){
 
 }
 
-void cd(char *name){
+int cd(char *name){
 
     // printf("The folder to find is %s \n", name);
     unsigned short int compare_flag = 1 << 14; //To check if the file is a directory or not
@@ -395,13 +396,35 @@ void cd(char *name){
 
     if(new_iNumber == 0){
         printf("Folder not found! \n");
-        return;
+        return -1;
     }
     
     inode.actime = time(NULL);
     inode_writer(new_iNumber, inode);
     currDir_iNumber = new_iNumber;
     // printf("The new dir inode number is %d \n", currDir_iNumber);
+
+    return 1;
+}
+
+char* addressResolver(char *name){
+    char* address = strdup(name);
+    char* token = strtok(address, "/");
+
+    char* prev = token;
+    actualDir_iNumber = currDir_iNumber;
+
+    if(address[0] == '/'){
+        currDir_iNumber = 1;
+    }
+
+    while(token != NULL){
+        if(cd(token) == -1){
+            return token;
+        }
+        token = strtok(NULL, "/");
+    }
+    return token;
 
 }
 
@@ -671,6 +694,29 @@ int main(){
     printf("%s \n", temp_dir[3].filename);
     printf("%d \n", temp_dir[3].inode);
     printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    // char address[] = "/user/jay";
+    // char* token = strtok(address, "/");
+
+    // char* prev = token;
+
+    // if(address[0] != '/'){
+    //     printf("Relative to '%s' \n", token);
+    //     prev = token;
+    //     token = strtok(NULL, "/");
+    // }
+
+    // while(token != NULL){
+    //     printf("%s \n", token);
+    //     prev = token;
+    //     token = strtok(NULL, "/");
+    // }
+
+    char *test;
+
+    test = addressResolver("/Testing");
+    printf("%d \n", currDir_iNumber);
+    printf("%s \n", test);
 
 
 
