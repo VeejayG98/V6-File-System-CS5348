@@ -75,9 +75,10 @@ void blockWriter(int blockNumber, void *buffer, int size){
     
 }
 
-void blockReader(int blockNumber, void *buffer, int size){
+int blockReader(int blockNumber, void *buffer, int size){
     lseek(fd, blockNumber*BLOCK_SIZE, SEEK_SET);
-    read(fd, buffer, size);
+    int bytesRead = read(fd, buffer, size);
+    return bytesRead;
 }
 
 void blockReader_withOffset(int blockNumber, int offset, void *buffer, int size){
@@ -472,7 +473,7 @@ void cpin(char *source_path, char *filename){
 
 void cpout(char *dest_path, char *filename){
 
-    int dest, currDirBlockNumber, j;
+    int dest, currDirBlockNumber, j, bytesRead;
     inode_type file;
     dest = open(dest_path, O_RDWR|O_CREAT, 0600);
 
@@ -500,12 +501,14 @@ void cpout(char *dest_path, char *filename){
 
             for(j = 0; j < file.size1/BLOCK_SIZE; j++){
                 
-                blockReader(file.addr[i], temp_buffer, BLOCK_SIZE);
+                bytesRead = blockReader(file.addr[j], temp_buffer, BLOCK_SIZE);
                 printf("%s \n", temp_buffer);
-                write(dest, temp_buffer, BLOCK_SIZE);
+                printf("Bytes to write %d \n", bytesRead);
+                write(dest, temp_buffer, bytesRead);
             }
-            blockReader(file.addr[i], temp_buffer, file.size1 % BLOCK_SIZE);
-            write(dest, temp_buffer, file.size1 % BLOCK_SIZE);
+            bytesRead = blockReader(file.addr[j], temp_buffer, file.size1 % BLOCK_SIZE);
+            printf("Bytes to write %d and addr is %d \n", bytesRead, j);
+            write(dest, temp_buffer, bytesRead);
             
             break;
 
@@ -602,7 +605,7 @@ int main(){
     printf("%d \n", temp_dir[3].inode);
     printf("Current Dir Inode: %d \n", currDir_iNumber);
 
-    // cpout("transfer1.txt", "transfer.txt");
+    cpout("transfer1.txt", "transfer.txt");
 
     inode_type file = inode_reader(temp_dir[3].inode, file);
     printf("The size of the file is %d \n", file.size1);
@@ -610,6 +613,9 @@ int main(){
     blockReader(file.addr[0], temp, file.size1);
 
     printf("%s \n", temp);
+
+    // int dest = open("transfer1.txt", O_RDWR|O_CREAT, 0600);
+    // write(dest, temp, file.size1);
 
 
 
