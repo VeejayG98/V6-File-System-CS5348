@@ -408,6 +408,11 @@ void cd(char *name){
 void cpin(char *source_path, char *filename){
     int source, blockNumber, iNumber, bytesRead;
 
+    if(strlen(filename) == 0){
+        printf("Invalid filename! \n");
+        return;
+    }
+
     if((source = open(source_path, O_RDWR)) == -1){
         printf("File does not exist! \n");
         return;
@@ -473,6 +478,11 @@ void cpin(char *source_path, char *filename){
 
 void cpout(char *dest_path, char *filename){
 
+    if(strlen(filename) == 0){
+        printf("Invalid filename! \n");
+        return;
+    }
+
     int dest, currDirBlockNumber, j, bytesRead;
     inode_type file;
     dest = open(dest_path, O_RDWR|O_CREAT, 0600);
@@ -514,6 +524,48 @@ void cpout(char *dest_path, char *filename){
 
         }
     }
+}
+
+void rm(char *filename){
+    int currDirBlockNumber, j, blockNumber;
+    inode_type file;
+
+    if(strlen(filename) == 0){
+        printf("Invalid filename! \n");
+        return;
+    }
+    
+    inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
+    currDirBlockNumber = currDir_inode.addr[0];
+    dir_type currDir[32];
+    unsigned short int compare_flag = 1 << 14;
+
+    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &currDir, sizeof(currDir));
+
+    for(int i = 0; i < 32; i++){
+
+        if(strcmp(currDir[i].filename, filename) == 0){
+            printf("The inode of the file is %d \n", currDir[i].inode);
+            file = inode_reader(currDir[i].inode, file);
+
+            if(file.flags & compare_flag){
+                printf("It is not a file!");
+                return;
+            }
+
+            for(j = 0; j < file.size1/BLOCK_SIZE; j++){
+                allocate_blocks(file.addr[j]);
+            }
+            file.flags &= ~(1 << 15); //Unallocating the inode
+            strcpy(currDir[i].filename,"");
+            inode_writer(currDir[i].filename, file);
+            blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
+            currDir_inode.size1 -= file.size1;
+            break;
+        }
+    }
+
 }
 
 // Function to quit the program
@@ -607,12 +659,28 @@ int main(){
 
     cpout("transfer1.txt", "transfer.txt");
 
-    inode_type file = inode_reader(temp_dir[3].inode, file);
-    printf("The size of the file is %d \n", file.size1);
-    char temp[BLOCK_SIZE];
-    blockReader(file.addr[0], temp, file.size1);
+    rm("transfer.txt");
 
-    printf("%s \n", temp);
+    printf("After Deleting! \n");
+
+    temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[3].filename);
+    printf("%d \n", temp_dir[3].inode);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+
+
+
+    // inode_type file = inode_reader(temp_dir[3].inode, file);
+    // printf("The size of the file is %d \n", file.size1);
+    // char temp[BLOCK_SIZE];
+    // blockReader(file.addr[0], temp, file.size1);
+
+    // printf("%s \n", temp);
 
     // int dest = open("transfer1.txt", O_RDWR|O_CREAT, 0600);
     // write(dest, temp, file.size1);
