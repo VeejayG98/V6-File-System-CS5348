@@ -47,6 +47,8 @@ int no_of_inodes;
 int currDir_iNumber;
 int actualDir_iNumber;
 
+int cd(char *name);
+
 int open_fs(char *file_name){
     fd = open(file_name, O_RDWR | O_CREAT, 0600);
 
@@ -203,6 +205,9 @@ void create_root(){
 
     root.addr[0] = block_number;
     root.nlinks = 1;
+    for(int i = 1; i < 9; i++){
+        root.addr[i] = 0;
+    }
     
     root.flags |= 1 << 15; //Root is allocated
     root.flags |= 1 <<14; //It is a directory
@@ -269,36 +274,107 @@ void initfs(int n1, int n2){
 
 }
 
+char* addressResolver(char *name){
+    char* address = strdup(name);
+    char* token = strtok(address, "/");
+
+    char* new_address = strdup("");
+    char* prev = "";
+
+    while(token != NULL){
+        
+        // printf("%s \n", token);
+        // char* prev = token;
+        if(strlen(prev) != 0){
+            strcat(new_address, prev);
+            strcat(new_address, "/");
+        }
+        prev = token;
+        token = strtok(NULL, "/");        
+    }
+
+    // printf("%s \n", new_address);
+    // printf("%s \n", prev);
+
+    actualDir_iNumber = currDir_iNumber;
+
+    if(address[0] == '/'){
+        currDir_iNumber = 1;
+    }
+
+    token = strtok(new_address, "/");
+
+    while(token != NULL){
+        if(cd(token) == -1){
+            printf("Error!\n");
+            return "";
+        }
+        token = strtok(NULL, "/");
+    }
+    return prev;
+
+}
+
 void mkdir(char *name){
+
+    name = addressResolver(name);
+
+    // printf("The folder to be created is %s \n", name);
+
+    if(strlen(name) == 0){
+        return;
+    }
+    // printf("the folder to make is %s \n", name);
 
     int iNumber;
     // printf("The current directory is %d \n", currDir_iNumber);
     inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
-    int currDirBlockNumber = currDir_inode.addr[0];
+    int currDirBlockNumber;
 
     dir_type currDir[32];
+    int spaceAvailable = 0;
 
-    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
-    read(fd, &currDir, sizeof(currDir));
+    for(int j = 0; j < 9; j++){
 
-    for(int i = 0; i < 32; i++){
-
-        if(strcmp(currDir[i].filename, name) == 0){
-            printf("Folder already exists! \n");
-            return;
+        if(spaceAvailable){
+            // printf("Yes! \n");
+            break;
         }
 
-        if(strlen(currDir[i].filename) == 0){
-            iNumber = getFreeInode();
+        if(currDir_inode.addr[j] == 0){
+            if( (currDir_inode.addr[j] = getFreeDataBlock()) == -1){
+                printf("Storage space full! No free Data blocks are available!");
+                return;
+            }
+        }
 
-            if(iNumber == -1){
-                printf("Storage space full! No free inodes are available!");
+        currDirBlockNumber = currDir_inode.addr[j];
+        // printf("Hello! \n");
+        lseek(fd, currDir_inode.addr[j] * BLOCK_SIZE, SEEK_SET);
+        read(fd, &currDir, sizeof(currDir));
+
+        for(int i = 0; i < 32; i++){
+
+            if(strcmp(currDir[i].filename, name) == 0){
+                printf("Folder already exists! \n");
                 return;
             }
 
-            strcpy(currDir[i].filename, name);
-            currDir[i].inode = iNumber;
-            break;
+            if(strlen(currDir[i].filename) == 0){
+                // printf("Success! \n");
+                iNumber = getFreeInode();
+
+                if(iNumber == -1){
+                    printf("Storage space full! No free inodes are available!");
+                    return;
+                }
+
+                strcpy(currDir[i].filename, name);
+                // printf("The file name is %s \n", currDir[i].filename);
+                currDir[i].inode = iNumber;
+                spaceAvailable = 1;
+                break;
+            }
         }
     }
 
@@ -339,12 +415,17 @@ void mkdir(char *name){
     inode.size0 = 0;
     inode.size1 = 2 * sizeof(dir_type);
     inode.addr[0] = blockNumber;
+    for(int i = 1; i < 9; i++){
+        inode.addr[i] = 0;
+    }
 
     inode_writer(iNumber, inode);
 
     currDir_inode.size1 += sizeof(dir_type);
     inode_writer(currDir_iNumber, currDir_inode);
-    blockWriter(currDirBlockNumber, currDir, sizeof(currDir));    
+    blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
+
+    currDir_iNumber = actualDir_iNumber;  
 
     // inode_type new_inode = inode_reader(iNumber, new_inode);
     // printf("After writing, flags: %d \n", new_inode.flags);
@@ -370,26 +451,41 @@ int cd(char *name){
     inode_type inode;
 
     inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
-    int currDirBlockNumber = currDir_inode.addr[0];
+    int currDirBlockNumber;
 
     dir_type currDir[32];
 
-    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
-    read(fd, &currDir, sizeof(currDir));
-
     int new_iNumber = 0;
-    for(int i = 0; i < 32; i++){
-        // printf("%s \n", currDir[i].filename);
-        // printf("The iNumber of the file is %d \n", currDir[i].inode);
-        if(strcmp(currDir[i].filename, name) == 0){
-            // printf("Yes! \n");
+    int fileFound = 0;
+    
+    for(int j = 0; j < 9; j++){
 
-            inode = inode_reader(currDir[i].inode, inode);
+        if(fileFound){
+            break;
+        }
 
-            if(inode.flags & compare_flag){
-                // printf("Another yes! \n");
-                new_iNumber = currDir[i].inode;
-                break;
+        if(currDir_inode.addr[j] == 0){
+            break;
+        }
+
+        currDirBlockNumber = currDir_inode.addr[j];
+        lseek(fd, currDir_inode.addr[j] * BLOCK_SIZE, SEEK_SET);
+        read(fd, &currDir, sizeof(currDir));
+
+        for(int i = 0; i < 32; i++){
+            // printf("%s \n", currDir[i].filename);
+            // printf("The iNumber of the file is %d \n", currDir[i].inode);
+            if(strcmp(currDir[i].filename, name) == 0){
+                // printf("Yes! \n");
+
+                inode = inode_reader(currDir[i].inode, inode);
+
+                if(inode.flags & compare_flag){
+                    // printf("Another yes! \n");
+                    new_iNumber = currDir[i].inode;
+                    fileFound = 1;
+                    break;
+                }
             }
         }
     }
@@ -407,28 +503,15 @@ int cd(char *name){
     return 1;
 }
 
-char* addressResolver(char *name){
-    char* address = strdup(name);
-    char* token = strtok(address, "/");
-
-    char* prev = token;
-    actualDir_iNumber = currDir_iNumber;
-
-    if(address[0] == '/'){
-        currDir_iNumber = 1;
-    }
-
-    while(token != NULL){
-        if(cd(token) == -1){
-            return token;
-        }
-        token = strtok(NULL, "/");
-    }
-    return token;
-
+void internal_cd(char *name){
+    addressResolver(name);
 }
 
 void cpin(char *source_path, char *filename){
+
+    filename = addressResolver(filename);
+    // printf("%s \n", filename);
+
     int source, blockNumber, iNumber, bytesRead;
 
     if(strlen(filename) == 0){
@@ -465,7 +548,7 @@ void cpin(char *source_path, char *filename){
     do
     {
         bytesRead = read(source, tempBuffer, BLOCK_SIZE);
-        printf("%s \n", tempBuffer);
+        // printf("%s \n", tempBuffer);
         new_file.size1 += bytesRead;
         
         if((blockNumber = getFreeDataBlock()) == -1){
@@ -482,24 +565,47 @@ void cpin(char *source_path, char *filename){
 
     inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
     dir_type currDir[32];
-    int currDirBlockNumber = currDir_inode.addr[0];
+    int currDirBlockNumber;
+    int spaceAvailable = 0;
 
-    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
-    read(fd, &currDir, sizeof(currDir));
+    for(int j = 0; j < 9; j++){
 
-    for(i = 0; i < 32; i++){
-        if(strlen(currDir[i].filename) == 0){
-            strcpy(currDir[i].filename, filename);
-            currDir[i].inode = iNumber;
+        if(spaceAvailable){
+            break;
+        }
+        
+        if(currDir_inode.addr[j] == 0){
+            if( (currDir_inode.addr[j] = getFreeDataBlock()) == -1){
+                printf("Storage space full! No free Data blocks are available!");
+                return;
+            }
+        }
+
+        currDirBlockNumber = currDir_inode.addr[j];
+
+        lseek(fd, currDir_inode.addr[j] * BLOCK_SIZE, SEEK_SET);
+        read(fd, &currDir, sizeof(currDir));
+
+        for(i = 0; i < 32; i++){
+            // printf("Hello \n");
+            if(strlen(currDir[i].filename) == 0){
+                strcpy(currDir[i].filename, filename);
+                currDir[i].inode = iNumber;
+                spaceAvailable = 1;
+            }
         }
     }
     currDir_inode.size1 += sizeof(dir_type);
     inode_writer(currDir_iNumber, currDir_inode);
     blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
 
+    currDir_iNumber = actualDir_iNumber;  
+
 }
 
 void cpout(char *dest_path, char *filename){
+
+    filename = addressResolver(filename);
 
     if(strlen(filename) == 0){
         printf("Invalid filename! \n");
@@ -511,45 +617,70 @@ void cpout(char *dest_path, char *filename){
     dest = open(dest_path, O_RDWR|O_CREAT, 0600);
 
     inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
-    currDirBlockNumber = currDir_inode.addr[0];
 
     dir_type currDir[32];
     unsigned short int compare_flag = 1 << 14;
 
-    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
-    read(fd, &currDir, sizeof(currDir));
 
     char temp_buffer[BLOCK_SIZE];
+    int fileFound = 0;
 
-    for(int i = 0; i < 32; i++){
+    for(int k = 0; k < 9; k++){
 
-        if(strcmp(currDir[i].filename, filename) == 0){
-            printf("The inode of the file is %d \n", currDir[i].inode);
-            file = inode_reader(currDir[i].inode, file);
-
-            if(file.flags & compare_flag){
-                printf("It is not a file!");
-                return;
-            }
-
-            for(j = 0; j < file.size1/BLOCK_SIZE; j++){
-                
-                bytesRead = blockReader(file.addr[j], temp_buffer, BLOCK_SIZE);
-                printf("%s \n", temp_buffer);
-                printf("Bytes to write %d \n", bytesRead);
-                write(dest, temp_buffer, bytesRead);
-            }
-            bytesRead = blockReader(file.addr[j], temp_buffer, file.size1 % BLOCK_SIZE);
-            printf("Bytes to write %d and addr is %d \n", bytesRead, j);
-            write(dest, temp_buffer, bytesRead);
-            
+        if(fileFound){
             break;
+        }
 
+        if(currDir_inode.addr[k] == 0){
+            break;
+        }
+
+        currDirBlockNumber = currDir_inode.addr[0];
+        lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+        read(fd, &currDir, sizeof(currDir));
+
+        for(int i = 0; i < 32; i++){
+
+            if(strcmp(currDir[i].filename, filename) == 0){
+                printf("The inode of the file is %d \n", currDir[i].inode);
+                file = inode_reader(currDir[i].inode, file);
+
+                if(file.flags & compare_flag){
+                    printf("It is not a file!");
+                    return;
+                }
+
+                for(j = 0; j < file.size1/BLOCK_SIZE; j++){
+                    
+                    bytesRead = blockReader(file.addr[j], temp_buffer, BLOCK_SIZE);
+                    printf("%s \n", temp_buffer);
+                    printf("Bytes to write %d \n", bytesRead);
+                    write(dest, temp_buffer, bytesRead);
+                }
+                bytesRead = blockReader(file.addr[j], temp_buffer, file.size1 % BLOCK_SIZE);
+                printf("Bytes to write %d and addr is %d \n", bytesRead, j);
+                write(dest, temp_buffer, bytesRead);
+                
+                fileFound = 1;
+                break;
+
+            }
         }
     }
+
+    if(!fileFound){
+        printf("File not found! \n");
+        return;
+    }
+
+    currDir_iNumber = actualDir_iNumber;  
+
 }
 
 void rm(char *filename){
+
+    filename = addressResolver(filename);
+
     int currDirBlockNumber, j, blockNumber;
     inode_type file;
 
@@ -589,6 +720,8 @@ void rm(char *filename){
         }
     }
 
+    currDir_iNumber = actualDir_iNumber;  
+
 }
 
 // Function to quit the program
@@ -601,8 +734,8 @@ void quit(){
 int main(){
     printf("Root flag is %d \n", root.flags);
 
-    int n1 = 10;
-    int n2 = 2;
+    int n1 = 100;
+    int n2 = 30;
     inode_type temp_root;
 
     open_fs("foo.txt");
@@ -648,8 +781,8 @@ int main(){
 
     mkdir("Testing");
 
-    inode_type new_inode = inode_reader(2, new_inode);
-    printf("After writing, flags: %d \n", new_inode.flags);
+    // inode_type new_inode = inode_reader(2, new_inode);
+    // printf("After writing, flags: %d \n", new_inode.flags);
 
     dir_type temp_dir[32];
     
@@ -659,6 +792,74 @@ int main(){
     printf("%s \n", temp_dir[2].filename);
     printf("Current Dir Inode: %d \n", currDir_iNumber);
 
+    cd("Testing");
+
+    mkdir("Batman");
+    temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[2].filename);
+    printf("%d \n", temp_dir[2].inode);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    cd("..");
+    printf("%d \n", currDir_iNumber);
+
+    cpin("Open.c", "Testing/Open.c");
+
+    cd("Testing");
+    printf("%d \n", currDir_iNumber);
+
+    temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[3].filename);
+    printf("%d \n", temp_dir[3].inode);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    internal_cd("/");
+    printf("Current Directory: %d \n", currDir_iNumber);
+
+    cpout("Open1.c", "/Testing/Open.c");
+
+    //new
+
+
+
+    // mkdir("/Testing/Batman!/Chicken");
+
+    // temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    // lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    // read(fd, &temp_dir, sizeof(temp_dir));
+
+    // printf("%s \n", temp_dir[2].filename);
+    // printf("%d \n", temp_dir[2].inode);
+    // printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+
+    // char* testing = addressResolver("/Testing/Batman/Chicken/!");
+    // printf("%d \n", currDir_iNumber);
+    // printf("%s \n", testing);
+
+
+
+    // mkdir("Testing/Batman");
+
+    // temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    // lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    // read(fd, &temp_dir, sizeof(temp_dir));
+
+    // printf("%s \n", temp_dir[2].filename);
+    // printf("%d \n", temp_dir[2].inode);
+    // printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+/*
     cd("Testing");
 
     mkdir("Batman");
@@ -695,6 +896,8 @@ int main(){
     printf("%d \n", temp_dir[3].inode);
     printf("Current Dir Inode: %d \n", currDir_iNumber);
 
+    */
+
     // char address[] = "/user/jay";
     // char* token = strtok(address, "/");
 
@@ -712,11 +915,11 @@ int main(){
     //     token = strtok(NULL, "/");
     // }
 
-    char *test;
+    // char *test;
 
-    test = addressResolver("/Testing");
-    printf("%d \n", currDir_iNumber);
-    printf("%s \n", test);
+    // test = addressResolver("/Testing");
+    // printf("%d \n", currDir_iNumber);
+    // printf("%s \n", test);
 
 
 
