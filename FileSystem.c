@@ -635,8 +635,8 @@ void cpout(char *dest_path, char *filename){
             break;
         }
 
-        currDirBlockNumber = currDir_inode.addr[0];
-        lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
+        currDirBlockNumber = currDir_inode.addr[k];
+        lseek(fd, currDir_inode.addr[k] * BLOCK_SIZE, SEEK_SET);
         read(fd, &currDir, sizeof(currDir));
 
         for(int i = 0; i < 32; i++){
@@ -690,34 +690,54 @@ void rm(char *filename){
     }
     
     inode_type currDir_inode = inode_reader(currDir_iNumber, currDir_inode);
-    currDirBlockNumber = currDir_inode.addr[0];
     dir_type currDir[32];
     unsigned short int compare_flag = 1 << 14;
+    int fileFound = 0;
 
-    lseek(fd, currDir_inode.addr[0] * BLOCK_SIZE, SEEK_SET);
-    read(fd, &currDir, sizeof(currDir));
+    for(int k = 0; k < 9; k++){
 
-    for(int i = 0; i < 32; i++){
-
-        if(strcmp(currDir[i].filename, filename) == 0){
-            printf("The inode of the file is %d \n", currDir[i].inode);
-            file = inode_reader(currDir[i].inode, file);
-
-            if(file.flags & compare_flag){
-                printf("It is not a file!");
-                return;
-            }
-
-            for(j = 0; j < file.size1/BLOCK_SIZE; j++){
-                allocate_blocks(file.addr[j]);
-            }
-            file.flags &= ~(1 << 15); //Unallocating the inode
-            strcpy(currDir[i].filename,"");
-            inode_writer(currDir[i].filename, file);
-            blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
-            currDir_inode.size1 -= file.size1;
+        if(fileFound){
             break;
         }
+
+        if(currDir_inode.addr[k] == 0){
+            break;
+        }
+
+        currDirBlockNumber = currDir_inode.addr[k];
+        lseek(fd, currDir_inode.addr[k] * BLOCK_SIZE, SEEK_SET);
+        read(fd, &currDir, sizeof(currDir));
+
+        for(int i = 0; i < 32; i++){
+
+            if(strcmp(currDir[i].filename, filename) == 0){
+                printf("The inode of the file is %d \n", currDir[i].inode);
+                file = inode_reader(currDir[i].inode, file);
+
+                if(file.flags & compare_flag){
+                    printf("It is not a file!");
+                    return;
+                }
+
+                for(j = 0; j < file.size1/BLOCK_SIZE; j++){
+                    allocate_blocks(file.addr[j]);
+                }
+                file.flags &= ~(1 << 15); //Unallocating the inode
+
+                strcpy(currDir[i].filename,"");
+                inode_writer(currDir[i].inode, file);
+                blockWriter(currDirBlockNumber, currDir, sizeof(currDir));  
+                currDir_inode.size1 -= file.size1;
+
+                fileFound = 1;
+                break;
+            }
+        }
+    }
+
+    if(!fileFound){
+        printf("File not found! \n");
+        return;
     }
 
     currDir_iNumber = actualDir_iNumber;  
@@ -825,6 +845,29 @@ int main(){
     printf("Current Directory: %d \n", currDir_iNumber);
 
     cpout("Open1.c", "/Testing/Open.c");
+
+    rm("/Testing/Open.c");
+    cd("Testing");
+
+    temp_root= inode_reader(currDir_iNumber, temp_root);
+
+    lseek(fd, temp_root.addr[0] * BLOCK_SIZE, SEEK_SET);
+    read(fd, &temp_dir, sizeof(temp_dir));
+
+    printf("%s \n", temp_dir[3].filename);
+    printf("%d \n", temp_dir[3].inode);
+    printf("Current Dir Inode: %d \n", currDir_iNumber);
+
+    temp_root = inode_reader(temp_dir[3].inode, temp_root);
+
+    if(temp_root.flags & a){
+    printf("The inode is allocated! \n");
+    }
+
+    else{
+        printf("The inode is unallocated! \n");
+    }
+
 
     //new
 
