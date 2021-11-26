@@ -1,3 +1,102 @@
+/*
+ * CS 5348 - PROJECT.2 PART.2
+ * TEAM - 11
+ * GOVINDRAJ, VARASIDDHI JAYASURYAA - vxg190049
+ * KALANTARIAN, LEVON - lxk016400
+ * GODISHALA, SREEJA - sxg200037
+ *
+ *------------------------------------------------------------------
+ *
+ * All the team members worked collectively to implement each command.
+ * Each one of us got familiar with the read, write, open, lseek system calls by implementing small programs on our own and
+ * used that knowledge to understand the working of the three commands to be implemented.
+ * For implementing the initfs command we went through the class notes and the slides, understood the multiple steps involved in the 
+   file system initialization process such as initializing the data blocks, inodes, adding and getting the free data blocks and verifing the 
+   file system initialization without the ninode value.
+ *
+ *-------------------------------------------------------------------
+
+ OPENFS
+ ------
+
+ * Takes the path of the filesystem to open as input. 
+ * Using this path, we open the filesystem. If the filesystem is not present, then we create the file system using the flag O|CREAT passed into the open() system call.
+ * If the file system already exists, we read in the superblock, and get the number of inodes present and set the current directory to the root directory.
+ 
+ INITFS
+ ------
+
+ * The initfs command takes two inputs- No of blocks allocated for the filesystem, and No of blocks allocated just for the inodes.
+ * Using the two inputs, we write the value of isize of the filesystem. 
+ * We initialize all the inodes of the filesystem. Set all the inodes to unallocated by setting the first bit (MSB) of the inodes to 0.
+ * We take all the data blocks of the filesystem and chain them together.
+ * We then proceed to create the root directory of the file system. We allocate a free data block for the root directory and allocate inode number 1 to the root.
+ * We write two entries into the directory (. and ..) and set all the addr[i] to 0 until a data block is allocated to it.
+ * We set the 15th bit of the root inode to 1 to indicate it is allocated.
+ * We set the 14th bit of the root inode to 1 to indicate it is a directory.
+ 
+ MKDIR
+ ------
+
+ * It takes in the filename (of the directory to make) as the input.
+ * We pass the folder name to an address resolver to remove any absolute or relative paths. This takes us to the correct directory to make the folder.
+ * We then go through each addr[i] to get the directory entries. If the directory entry is empty, its strlen(filename) will be 0.
+ * We use this to find an empty space within the directory entries. If there is a existing folder with the same name, then the directory is not created.
+ * After finding an available directory entry, we allocate an inode and data block to the new folder.
+ * We set ".." to point to the inode of the parent directory and "." to itself.
+ 
+
+ CD
+ ------
+
+ * It takes in the filename (of the directory we want to access) as the input.
+ * We use a compare flag to check if the file is a directory or not. Using the current directory's inode, we traverse through the addr[] array and through each directory entry to find the directory we wish to access.
+ * If the file is found, it's inode flags is tested with the compare flag to ensure that the file is a directory. Once the file is found, we set the fileFound variable to 1, so further looping does not occur.
+ * For our implementation of cd in the main() function, we actually use a wrapper function called internal_cd().
+ * This function resolves the address provided (whether it be relative or absolute) and uses cd() to access each directory within the address provided.
+ * eg- /user/jay- we use internal_cd() to resolve this address, so we first cd() into user and then cd() into jay.
+ 
+
+ CPIN
+ ------
+
+ * It takes in two parameters as its input- source_path- which is the path of the file on our local machine, and filename- which is the path of the file (including the filename) where we want to copy into our v6 file system.
+ * We pass the folder name to an address resolver to remove any absolute or relative paths. This takes us to the correct directory to copy the file into.
+ * We then go through each addr[i] to get the directory entries. If the directory entry is empty, its strlen(filename) will be 0.
+ * We use this to find an empty space within the directory entries. This empty space will be the entry for the copied file.
+ * After finding an available directory entry, we allocate an inode to the copied file. We also set the spaceAvailable vairable to 1 once space is found to prevent further looping.
+ * We then open the source file and read it's bytes in chunks (equal to 1024 bytes) and write it into the copied file within the v6 file system.
+ 
+
+ CPOUT
+ ------ 
+
+ * It takes in two parameters as its input- dest_path- which is the path of the file on our local machine where we will copy into, and filename- which is the path of the file (including the filename) where we want to copy out from our v6 file system.
+ * We pass the folder name to an address resolver to remove any absolute or relative paths. This takes us to the correct directory to copy the file from the v6 file system.
+ * We then go through each addr[i] to get the directory entries. If the directory entry is empty, its strlen(filename) will be 0.
+ * We use this to find the file which we wish to copy. Once the file is found, the fileFound variable is set to 1 to prevent further looping.
+ * After finding the file, we read the contents of the file in chunks of 1024 bytes and write those read bytes into the destination address of our local machine.
+ 
+
+ RM
+ ------ 
+
+ * It takes in the filename (of the file we want to delete) as the input.
+ * Using the current directory's inode, we traverse through the addr[] array and through each directory entry to find the file we wish to delete.
+ * Once the file is found, we use a compare flag to ensure that the file is a regular file and not a directory. We set the fileFound variable to 1 to prevent further looping.
+ * We then go through the addr[i] of the file to free the data blocks allocated to it.
+ * We set the filename of that file to "" so that it's strlen would be equal to 0.
+ * We de-allocate the inode by toggling the 15th bit to 0.
+ 
+  
+ LS
+ ------ 
+
+ * This function goes traverses through the current directory's addr[] array and goes through each directory entry and prints out each file's name and inode number allocated to it.
+
+*/
+
+
 #include<stdio.h>
 #include<string.h>
 #include<fcntl.h>
@@ -480,9 +579,7 @@ void internal_cd(char *name){
         if(cd(token) == -1){
             printf("Error! Folder not found!\n");
         }
-        if(strcmp(token, "..")){
-
-        }
+        
         token = strtok(NULL, "/");
     }
 }
@@ -619,7 +716,7 @@ void cpout(char *dest_path, char *filename){
         for(int i = 0; i < 32; i++){
 
             if(strcmp(currDir[i].filename, filename) == 0){
-                printf("The inode of the file is %d \n", currDir[i].inode);
+            
                 file = inode_reader(currDir[i].inode, file);
 
                 if(file.flags & compare_flag){
@@ -630,12 +727,10 @@ void cpout(char *dest_path, char *filename){
                 for(j = 0; j < file.size1/BLOCK_SIZE; j++){
                     
                     bytesRead = blockReader(file.addr[j], temp_buffer, BLOCK_SIZE);
-                    printf("%s \n", temp_buffer);
-                    printf("Bytes to write %d \n", bytesRead);
+                    
                     write(dest, temp_buffer, bytesRead);
                 }
                 bytesRead = blockReader(file.addr[j], temp_buffer, file.size1 % BLOCK_SIZE);
-                // printf("Bytes to write %d and addr is %d \n", bytesRead, j);
                 write(dest, temp_buffer, bytesRead);
                 
                 fileFound = 1;
@@ -683,7 +778,6 @@ void ls(){
 void rm(char *filename){
 
     filename = addressResolver(filename);
-    // printf("%s \n", filename);
 
     int currDirBlockNumber, j, blockNumber;
     inode_type file;
@@ -716,7 +810,6 @@ void rm(char *filename){
 
             if(strcmp(currDir[i].filename, filename) == 0){
 
-                printf("The inode of the file is %d \n", currDir[i].inode);
                 file = inode_reader(currDir[i].inode, file);
 
                 if(file.flags & compare_flag){
@@ -770,10 +863,8 @@ int main(){
         printf("Enter a command: \n");
 
         scanf(" %[^\n]s", command);
-        // printf("%s \n", command);
 
         args = strtok(command, " ");
-        // printf("%s \n", args);
 
         if(strcmp(args, "openfs") == 0){
             args = strtok(NULL, " ");
