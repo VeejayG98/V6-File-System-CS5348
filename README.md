@@ -7,6 +7,11 @@ To execute the program, the following steps are to be followed:
 1) Execute this command to compile the code. "gcc FileSystem.c -o FileSystem -std=c99" (Tested on the UTD Unix server.)
 2) To run the executable file, please run this command "./FileSystem"
 
+## Running Instructions:
+
+1) When openfs is run, if the file system is not present it will create a new file system.
+2) Thus, you MUST initialize the file system if it has been newly created before executing any other commands.
+
 ## Documentation:
 
 Using this program, we can do the following operations on our file system:
